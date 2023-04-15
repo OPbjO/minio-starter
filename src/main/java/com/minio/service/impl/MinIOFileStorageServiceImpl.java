@@ -35,23 +35,11 @@ public class MinIOFileStorageServiceImpl implements MinIOFileStorageService {
         this.minIOConfigProperties = minIOConfigProperties;
     }
 
-    private String getFileType(String fileName) {
-
-        return fileName.substring(fileName.lastIndexOf(".") + 1, fileName.length());
-    }
-
-    /**
-     * @param dirPath
-     * @param filename
-     * @return
-     */
-    private String builderFilePath(String dirPath, String filename) {
+    private String builderFilePath(String dirPath, String filename, boolean addUUID) {
         if (!StringUtils.hasText(filename)) {
             log.error("文件名为空");
             throw new RuntimeException("上传文件失败");
         }
-        String name = filename.substring(0, filename.lastIndexOf("."));
-        String fileType = filename.substring(filename.lastIndexOf(".") + 1, filename.length());
         StringBuilder stringBuilder = new StringBuilder();
         if (StringUtils.hasText(dirPath)) {
             stringBuilder.append(dirPath).append(SEPARATOR);
@@ -59,17 +47,50 @@ public class MinIOFileStorageServiceImpl implements MinIOFileStorageService {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd");
         String todayStr = sdf.format(new Date());
         stringBuilder.append(todayStr).append(SEPARATOR);
-        stringBuilder.append(name).append("_").append(UUID.randomUUID().toString().replaceAll("-", "")).append(".").append(fileType);
+        if (addUUID) {
+            if (filename.contains(".")) {
+                String name = filename.substring(0, filename.lastIndexOf("."));
+                String fileType = filename.substring(filename.lastIndexOf("."), filename.length());
+                stringBuilder.append(name).append("_").append(UUID.randomUUID().toString().replaceAll("-", "")).append(fileType);
+            } else {
+                stringBuilder.append(filename).append("_").append(UUID.randomUUID().toString().replaceAll("-", ""));
+            }
+        } else {
+            stringBuilder.append(filename);
+        }
         return stringBuilder.toString();
     }
 
     @Override
-    public String uploadImgFile(String prefix, String filename, InputStream inputStream) {
-        String filePath = builderFilePath(prefix, filename);
+    public String uploadImgFile(String prefix, String filename, InputStream inputStream, boolean addUUID) {
+        String postfix = getImgPostfix(filename);
+        return doUploadImgFile(prefix, filename, inputStream, addUUID, postfix);
+    }
+
+    private String getImgPostfix(String filename) {
+        if (!StringUtils.hasText(filename) || !filename.contains(".")) {
+            log.error("文件名为空");
+            throw new RuntimeException("上传文件失败");
+        }
+        String postfix = filename.substring(filename.lastIndexOf(".") + 1, filename.length());
+        if ("gif".equals(postfix)) {
+            return MediaType.IMAGE_GIF_VALUE;
+        } else if ("jpeg".equals(postfix) || "jpg".equals(postfix)) {
+            return MediaType.IMAGE_JPEG_VALUE;
+        } else if ("png".equals(postfix)) {
+            return MediaType.IMAGE_PNG_VALUE;
+        } else {
+            log.error("不支持该类型图片");
+            throw new RuntimeException("上传文件失败");
+        }
+    }
+
+    private String doUploadImgFile(String prefix, String filename, InputStream inputStream, boolean addUUID, String postfix) {
+        String filePath = builderFilePath(prefix, filename, addUUID);
         try {
             PutObjectArgs putObjectArgs = PutObjectArgs.builder()
                     .object(filePath)
-                    .contentType(MediaType.IMAGE_JPEG_VALUE)
+                    .contentType(postfix)
                     .bucket(minIOConfigProperties.getBucket()).stream(inputStream, inputStream.available(), -1)
                     .build();
             minioClient.putObject(putObjectArgs);
@@ -83,8 +104,8 @@ public class MinIOFileStorageServiceImpl implements MinIOFileStorageService {
     }
 
     @Override
-    public String uploadHtmlFile(String prefix, String filename, InputStream inputStream) {
-        String filePath = builderFilePath(prefix, filename);
+    public String uploadHtmlFile(String prefix, String filename, InputStream inputStream, boolean addUUID) {
+        String filePath = builderFilePath(prefix, filename, addUUID);
         try {
             PutObjectArgs putObjectArgs = PutObjectArgs.builder()
                     .object(filePath)
